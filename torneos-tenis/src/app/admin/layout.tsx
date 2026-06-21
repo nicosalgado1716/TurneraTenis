@@ -23,6 +23,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     { href: '/admin/reservas', label: 'Reservas' },
     { href: '/admin/canchas', label: 'Canchas' },
     { href: '/admin/socios', label: 'Socios' },
+    { href: '/admin/auditoria', label: '📋 Auditoría' },
   ]
 
   return (

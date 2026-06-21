@@ -40,3 +40,15 @@ export interface HorarioDisponible {
   hora_fin: string
   disponible: boolean
 }
+
+export interface AuditLog {
+  id: string
+  tabla: string
+  accion: 'INSERT' | 'UPDATE' | 'DELETE'
+  user_id: string | null
+  descripcion: string | null
+  datos_antes: Record<string, unknown> | null
+  datos_despues: Record<string, unknown> | null
+  created_at: string
+  profile?: Pick<Profile, 'nombre' | 'apellido' | 'email' | 'role'>
+}

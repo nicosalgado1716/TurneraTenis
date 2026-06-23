@@ -22,12 +22,26 @@ interface Props {
   canchas: Cancha[]
 }
 
+function getHoraActual() {
+  const now = new Date()
+  return now.getHours() * 60 + now.getMinutes() // minutos desde medianoche
+}
+
+function esPasado(fecha: string, hora: string) {
+  const today = format(new Date(), 'yyyy-MM-dd')
+  if (fecha !== today) return false
+  const [h] = hora.split(':').map(Number)
+  const horaEnMinutos = h * 60
+  return horaEnMinutos <= getHoraActual()
+}
+
 export default function ReservaForm({ canchas }: Props) {
   const router = useRouter()
   const [canchaId, setCanchaId] = useState(canchas[0]?.id ?? '')
   const [fecha, setFecha] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [horaInicio, setHoraInicio] = useState('')
   const [ocupados, setOcupados] = useState<string[]>([])
+  const [yaReservoHoy, setYaReservoHoy] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loadingSlots, setLoadingSlots] = useState(false)
   const [success, setSuccess] = useState(false)
@@ -43,7 +57,9 @@ export default function ReservaForm({ canchas }: Props) {
     setLoadingSlots(true)
 
     const supabase = createClient()
-    supabase
+
+    // Cargar horarios ocupados de la cancha
+    const fetchOcupados = supabase
       .from('reservas')
       .select('hora_inicio')
       .eq('cancha_id', canchaId)
@@ -51,14 +67,37 @@ export default function ReservaForm({ canchas }: Props) {
       .neq('estado', 'cancelada')
       .then(({ data }) => {
         setOcupados((data ?? []).map((r: { hora_inicio: string }) => r.hora_inicio.slice(0, 5)))
-        setLoadingSlots(false)
       })
+
+    // Verificar si el usuario ya tiene una reserva activa ese día (en cualquier cancha)
+    const fetchYaReservo = supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return
+      return supabase
+        .from('reservas')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('fecha', fecha)
+        .eq('estado', 'confirmada')
+        .then(({ data }) => {
+          setYaReservoHoy((data ?? []).length > 0)
+        })
+    })
+
+    Promise.all([fetchOcupados, fetchYaReservo]).then(() => setLoadingSlots(false))
   }, [canchaId, fecha])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!horaInicio) {
       setError('Seleccioná un horario')
+      return
+    }
+    if (yaReservoHoy) {
+      setError('Ya tenés una reserva activa para este día. Solo se permite una reserva por día.')
+      return
+    }
+    if (esPasado(fecha, horaInicio)) {
+      setError('No podés reservar un horario que ya pasó.')
       return
     }
     setError('')
@@ -134,6 +173,13 @@ export default function ReservaForm({ canchas }: Props) {
         <p className="text-xs text-gray-400 mt-1">Podés reservar hasta 14 días de anticipación</p>
       </div>
 
+      {/* Aviso ya reservó hoy */}
+      {yaReservoHoy && (
+        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg px-4 py-3 text-sm">
+          Ya tenés una reserva activa para este día. Solo se permite una reserva por día.
+        </div>
+      )}
+
       {/* Horarios */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <label className="block font-medium text-gray-700 mb-3">Horario</label>
@@ -143,18 +189,25 @@ export default function ReservaForm({ canchas }: Props) {
           <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
             {HORARIOS.map(h => {
               const ocupado = ocupados.includes(h)
+              const pasado = esPasado(fecha, h)
               const selected = horaInicio === h
+              const disabled = ocupado || pasado || yaReservoHoy
+
               return (
                 <button
                   key={h}
                   type="button"
-                  disabled={ocupado}
-                  onClick={() => setHoraInicio(h)}
+                  disabled={disabled}
+                  onClick={() => !disabled && setHoraInicio(h)}
                   className={`py-2 rounded-lg text-sm font-medium transition ${
-                    ocupado
+                    pasado
+                      ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                      : ocupado
                       ? 'bg-red-100 text-red-400 cursor-not-allowed'
                       : selected
                       ? 'bg-green-600 text-white'
+                      : yaReservoHoy
+                      ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
                       : 'bg-gray-100 text-gray-700 hover:bg-green-100'
                   }`}
                 >
@@ -164,9 +217,10 @@ export default function ReservaForm({ canchas }: Props) {
             })}
           </div>
         )}
-        <div className="flex gap-4 mt-3 text-xs text-gray-500">
+        <div className="flex gap-4 mt-3 text-xs text-gray-500 flex-wrap">
           <span className="flex items-center gap-1"><span className="w-3 h-3 bg-green-600 rounded inline-block"/> Seleccionado</span>
           <span className="flex items-center gap-1"><span className="w-3 h-3 bg-red-100 rounded inline-block"/> Ocupado</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 bg-gray-100 rounded inline-block border border-gray-200"/> Pasado / No disponible</span>
           <span className="flex items-center gap-1"><span className="w-3 h-3 bg-gray-100 rounded inline-block"/> Disponible</span>
         </div>
       </div>
@@ -179,7 +233,7 @@ export default function ReservaForm({ canchas }: Props) {
 
       <button
         type="submit"
-        disabled={loading || !horaInicio}
+        disabled={loading || !horaInicio || yaReservoHoy}
         className="bg-green-700 text-white font-semibold px-8 py-3 rounded-xl hover:bg-green-800 transition disabled:opacity-50"
       >
         {loading ? 'Confirmando...' : 'Confirmar Reserva'}

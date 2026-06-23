@@ -129,7 +129,7 @@ export default function ReservaForm({ canchas }: Props) {
           min={today}
           max={maxDate}
           onChange={e => setFecha(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+          className="border border-gray-300 rounded-lg px-3 py-2 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500"
         />
         <p className="text-xs text-gray-400 mt-1">Podés reservar hasta 14 días de anticipación</p>
       </div>

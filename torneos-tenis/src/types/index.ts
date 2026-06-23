@@ -1,4 +1,5 @@
 export type UserRole = 'socio' | 'admin'
+export type Modalidad = 'single' | 'dobles'
 
 export interface Profile {
   id: string
@@ -29,9 +30,19 @@ export interface Reserva {
   hora_inicio: string
   hora_fin: string
   estado: 'confirmada' | 'cancelada' | 'pendiente'
+  modalidad: Modalidad
   notas?: string
   created_at: string
   cancha?: Cancha
+  profile?: Profile
+  jugadores?: ReservaJugador[]
+}
+
+export interface ReservaJugador {
+  id: string
+  reserva_id: string
+  user_id: string
+  created_at: string
   profile?: Profile
 }
 

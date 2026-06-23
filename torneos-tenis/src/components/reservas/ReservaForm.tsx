@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Cancha } from '@/types'
+import { Cancha, Profile, Modalidad } from '@/types'
 import { format, addDays } from 'date-fns'
 
 const HORARIOS = [
@@ -40,15 +40,29 @@ export default function ReservaForm({ canchas }: Props) {
   const [canchaId, setCanchaId] = useState(canchas[0]?.id ?? '')
   const [fecha, setFecha] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [horaInicio, setHoraInicio] = useState('')
+  const [modalidad, setModalidad] = useState<Modalidad>('single')
+  const [jugadores, setJugadores] = useState<(Profile | null)[]>([null])
+  const [busquedas, setBusquedas] = useState<string[]>([''])
+  const [resultados, setResultados] = useState<(Profile[])>([])
+  const [busquedaActiva, setBusquedaActiva] = useState<number | null>(null)
   const [ocupados, setOcupados] = useState<string[]>([])
   const [yaReservoHoy, setYaReservoHoy] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loadingSlots, setLoadingSlots] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState('')
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const today = format(new Date(), 'yyyy-MM-dd')
   const maxDate = format(addDays(new Date(), 14), 'yyyy-MM-dd')
+  const cantJugadores = modalidad === 'single' ? 1 : 3
+
+  // Al cambiar modalidad, resetear jugadores
+  useEffect(() => {
+    setJugadores(Array(cantJugadores).fill(null))
+    setBusquedas(Array(cantJugadores).fill(''))
+    setResultados([])
+  }, [modalidad, cantJugadores])
 
   useEffect(() => {
     if (!canchaId || !fecha) return
@@ -58,7 +72,6 @@ export default function ReservaForm({ canchas }: Props) {
 
     const supabase = createClient()
 
-    // Cargar horarios ocupados de la cancha
     const fetchOcupados = supabase
       .from('reservas')
       .select('hora_inicio')
@@ -69,7 +82,6 @@ export default function ReservaForm({ canchas }: Props) {
         setOcupados((data ?? []).map((r: { hora_inicio: string }) => r.hora_inicio.slice(0, 5)))
       })
 
-    // Verificar si el usuario ya tiene una reserva activa ese día (en cualquier cancha)
     const fetchYaReservo = supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return
       return supabase
@@ -78,49 +90,120 @@ export default function ReservaForm({ canchas }: Props) {
         .eq('user_id', user.id)
         .eq('fecha', fecha)
         .eq('estado', 'confirmada')
-        .then(({ data }) => {
-          setYaReservoHoy((data ?? []).length > 0)
-        })
+        .then(({ data }) => setYaReservoHoy((data ?? []).length > 0))
     })
 
     Promise.all([fetchOcupados, fetchYaReservo]).then(() => setLoadingSlots(false))
   }, [canchaId, fecha])
 
+  async function buscarJugador(texto: string, idx: number) {
+    const nuevas = [...busquedas]
+    nuevas[idx] = texto
+    setBusquedas(nuevas)
+
+    // Limpiar jugador seleccionado si se borra el texto
+    if (!texto) {
+      const nuevosJ = [...jugadores]
+      nuevosJ[idx] = null
+      setJugadores(nuevosJ)
+      setResultados([])
+      return
+    }
+
+    if (searchTimeout.current) clearTimeout(searchTimeout.current)
+    searchTimeout.current = setTimeout(async () => {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, nombre, apellido, email')
+        .or(`nombre.ilike.%${texto}%,apellido.ilike.%${texto}%,email.ilike.%${texto}%`)
+        .neq('role', 'admin')
+        .limit(5)
+
+      // Filtrar el usuario logueado y los ya seleccionados
+      const { data: { user } } = await supabase.auth.getUser()
+      const idsSeleccionados = jugadores.map(j => j?.id).filter(Boolean)
+      const filtrados = (data ?? []).filter(
+        (p: { id: string }) => p.id !== user?.id && !idsSeleccionados.includes(p.id)
+      )
+      setResultados(filtrados as Profile[])
+      setBusquedaActiva(idx)
+    }, 300)
+  }
+
+  function seleccionarJugador(jugador: Profile, idx: number) {
+    const nuevosJ = [...jugadores]
+    nuevosJ[idx] = jugador
+    setJugadores(nuevosJ)
+
+    const nuevas = [...busquedas]
+    nuevas[idx] = `${jugador.nombre} ${jugador.apellido}`
+    setBusquedas(nuevas)
+
+    setResultados([])
+    setBusquedaActiva(null)
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!horaInicio) {
-      setError('Seleccioná un horario')
+    if (!horaInicio) { setError('Seleccioná un horario'); return }
+    if (yaReservoHoy) { setError('Ya tenés una reserva activa para este día.'); return }
+    if (esPasado(fecha, horaInicio)) { setError('No podés reservar un horario que ya pasó.'); return }
+
+    // Validar que todos los jugadores estén seleccionados
+    const jugadoresCompletos = jugadores.filter(Boolean) as Profile[]
+    if (jugadoresCompletos.length < cantJugadores) {
+      setError(`Tenés que agregar ${cantJugadores} jugador${cantJugadores > 1 ? 'es' : ''} para un partido de ${modalidad}.`)
       return
     }
-    if (yaReservoHoy) {
-      setError('Ya tenés una reserva activa para este día. Solo se permite una reserva por día.')
-      return
+
+    // Validar que ningún jugador tenga reserva ese día
+    const supabase = createClient()
+    for (const jugador of jugadoresCompletos) {
+      const { data } = await supabase
+        .from('reservas')
+        .select('id')
+        .eq('user_id', jugador.id)
+        .eq('fecha', fecha)
+        .eq('estado', 'confirmada')
+
+      if (data && data.length > 0) {
+        setError(`${jugador.nombre} ${jugador.apellido} ya tiene un turno reservado para este día.`)
+        return
+      }
     }
-    if (esPasado(fecha, horaInicio)) {
-      setError('No podés reservar un horario que ya pasó.')
-      return
-    }
+
     setError('')
     setLoading(true)
 
-    const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
-
     const horaFin = `${String(parseInt(horaInicio.split(':')[0]) + 1).padStart(2, '0')}:00`
 
-    const { error: err } = await supabase.from('reservas').insert({
-      cancha_id: canchaId,
-      user_id: user!.id,
-      fecha,
-      hora_inicio: horaInicio,
-      hora_fin: horaFin,
-      estado: 'confirmada',
-    })
+    const { data: reserva, error: err } = await supabase
+      .from('reservas')
+      .insert({
+        cancha_id: canchaId,
+        user_id: user!.id,
+        fecha,
+        hora_inicio: horaInicio,
+        hora_fin: horaFin,
+        estado: 'confirmada',
+        modalidad,
+      })
+      .select('id')
+      .single()
 
-    if (err) {
-      setError(`Error: ${err.message} (code: ${err.code})`)
+    if (err || !reserva) {
+      setError(`Error: ${err?.message} (code: ${err?.code})`)
       setLoading(false)
       return
+    }
+
+    // Insertar jugadores
+    if (jugadoresCompletos.length > 0) {
+      await supabase.from('reserva_jugadores').insert(
+        jugadoresCompletos.map(j => ({ reserva_id: reserva.id, user_id: j.id }))
+      )
     }
 
     setSuccess(true)
@@ -171,6 +254,88 @@ export default function ReservaForm({ canchas }: Props) {
           className="border border-gray-300 rounded-lg px-3 py-2 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500"
         />
         <p className="text-xs text-gray-400 mt-1">Podés reservar hasta 14 días de anticipación</p>
+      </div>
+
+      {/* Modalidad */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <label className="block font-medium text-gray-700 mb-3">Modalidad de juego</label>
+        <div className="flex gap-3">
+          {(['single', 'dobles'] as Modalidad[]).map(m => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setModalidad(m)}
+              className={`flex-1 py-3 rounded-xl border-2 font-medium transition capitalize ${
+                modalidad === m
+                  ? 'border-green-600 bg-green-50 text-green-800'
+                  : 'border-gray-200 text-gray-600 hover:border-green-300'
+              }`}
+            >
+              {m === 'single' ? '🎾 Single (1 vs 1)' : '🎾 Dobles (2 vs 2)'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Jugadores */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <label className="block font-medium text-gray-700 mb-1">
+          {modalidad === 'single' ? 'Jugador oponente' : 'Jugadores (3 adicionales)'}
+        </label>
+        <p className="text-xs text-gray-400 mb-3">
+          Buscá por nombre o email. Ninguno puede tener otra reserva ese mismo día.
+        </p>
+        <div className="space-y-3">
+          {Array.from({ length: cantJugadores }).map((_, idx) => (
+            <div key={idx} className="relative">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400 w-5">{idx + 1}.</span>
+                <input
+                  type="text"
+                  value={busquedas[idx] ?? ''}
+                  onChange={e => buscarJugador(e.target.value, idx)}
+                  onFocus={() => setBusquedaActiva(idx)}
+                  placeholder="Buscar por nombre o email..."
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+                {jugadores[idx] && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nuevosJ = [...jugadores]; nuevosJ[idx] = null; setJugadores(nuevosJ)
+                      const nuevas = [...busquedas]; nuevas[idx] = ''; setBusquedas(nuevas)
+                    }}
+                    className="text-gray-400 hover:text-red-500 text-lg leading-none"
+                  >×</button>
+                )}
+              </div>
+
+              {/* Jugador seleccionado */}
+              {jugadores[idx] && (
+                <div className="mt-1 ml-7 text-xs text-green-700 font-medium">
+                  ✓ {jugadores[idx]!.nombre} {jugadores[idx]!.apellido} — {jugadores[idx]!.email}
+                </div>
+              )}
+
+              {/* Resultados de búsqueda */}
+              {busquedaActiva === idx && resultados.length > 0 && (
+                <div className="absolute left-7 right-0 top-10 bg-white border border-gray-200 rounded-lg shadow-lg z-10 overflow-hidden">
+                  {resultados.map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => seleccionarJugador(p, idx)}
+                      className="w-full text-left px-4 py-2.5 hover:bg-green-50 text-sm border-b last:border-0"
+                    >
+                      <p className="font-medium text-gray-800">{p.nombre} {p.apellido}</p>
+                      <p className="text-gray-400 text-xs">{p.email}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Aviso ya reservó hoy */}

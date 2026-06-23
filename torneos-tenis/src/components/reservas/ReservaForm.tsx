@@ -79,7 +79,7 @@ export default function ReservaForm({ canchas }: Props) {
     })
 
     if (err) {
-      setError('No se pudo crear la reserva. El horario puede estar ocupado.')
+      setError(`Error: ${err.message} (code: ${err.code})`)
       setLoading(false)
       return
     }

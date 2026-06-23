@@ -57,7 +57,7 @@ export default function RegistroPage() {
                 required
                 value={form.nombre}
                 onChange={handleChange}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
                 placeholder="Juan"
               />
             </div>
@@ -68,7 +68,7 @@ export default function RegistroPage() {
                 required
                 value={form.apellido}
                 onChange={handleChange}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
                 placeholder="Pérez"
               />
             </div>
@@ -79,7 +79,7 @@ export default function RegistroPage() {
               name="telefono"
               value={form.telefono}
               onChange={handleChange}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
               placeholder="11-1234-5678"
             />
           </div>
@@ -91,7 +91,7 @@ export default function RegistroPage() {
               required
               value={form.email}
               onChange={handleChange}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
               placeholder="tu@email.com"
             />
           </div>
@@ -104,7 +104,7 @@ export default function RegistroPage() {
               minLength={6}
               value={form.password}
               onChange={handleChange}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
               placeholder="Mínimo 6 caracteres"
             />
           </div>

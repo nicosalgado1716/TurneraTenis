@@ -47,6 +47,7 @@ export default function ReservaForm({ canchas }: Props) {
   const [busquedaActiva, setBusquedaActiva] = useState<number | null>(null)
   const [ocupados, setOcupados] = useState<string[]>([])
   const [yaReservoHoy, setYaReservoHoy] = useState(false)
+  const [inhabilitado, setInhabilitado] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loadingSlots, setLoadingSlots] = useState(false)
   const [success, setSuccess] = useState(false)
@@ -84,13 +85,24 @@ export default function ReservaForm({ canchas }: Props) {
 
     const fetchYaReservo = supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return
-      return supabase
-        .from('reservas')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('fecha', fecha)
-        .eq('estado', 'confirmada')
-        .then(({ data }) => setYaReservoHoy((data ?? []).length > 0))
+      return Promise.all([
+        supabase
+          .from('reservas')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('fecha', fecha)
+          .eq('estado', 'confirmada')
+          .then(({ data }) => setYaReservoHoy((data ?? []).length > 0)),
+        supabase
+          .from('sanciones')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('tipo', 'inhabilitacion_temporal')
+          .eq('estado', 'activa')
+          .lte('fecha_inicio', fecha)
+          .gte('fecha_fin', fecha)
+          .then(({ data }) => setInhabilitado((data ?? []).length > 0)),
+      ])
     })
 
     Promise.all([fetchOcupados, fetchYaReservo]).then(() => setLoadingSlots(false))
@@ -147,6 +159,7 @@ export default function ReservaForm({ canchas }: Props) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!horaInicio) { setError('Seleccioná un horario'); return }
+    if (inhabilitado) { setError('Tenés una sanción de inhabilitación de canchas vigente para esta fecha.'); return }
     if (yaReservoHoy) { setError('Ya tenés una reserva activa para este día.'); return }
     if (esPasado(fecha, horaInicio)) { setError('No podés reservar un horario que ya pasó.'); return }
 
@@ -338,8 +351,15 @@ export default function ReservaForm({ canchas }: Props) {
         </div>
       </div>
 
+      {/* Aviso inhabilitación */}
+      {inhabilitado && (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm font-medium">
+          Tenés una sanción de inhabilitación de canchas vigente para esta fecha. No podés realizar reservas.
+        </div>
+      )}
+
       {/* Aviso ya reservó hoy */}
-      {yaReservoHoy && (
+      {!inhabilitado && yaReservoHoy && (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg px-4 py-3 text-sm">
           Ya tenés una reserva activa para este día. Solo se permite una reserva por día.
         </div>
@@ -356,7 +376,7 @@ export default function ReservaForm({ canchas }: Props) {
               const ocupado = ocupados.includes(h)
               const pasado = esPasado(fecha, h)
               const selected = horaInicio === h
-              const disabled = ocupado || pasado || yaReservoHoy
+              const disabled = ocupado || pasado || yaReservoHoy || inhabilitado
 
               return (
                 <button
@@ -398,7 +418,7 @@ export default function ReservaForm({ canchas }: Props) {
 
       <button
         type="submit"
-        disabled={loading || !horaInicio || yaReservoHoy}
+        disabled={loading || !horaInicio || yaReservoHoy || inhabilitado}
         className="bg-green-700 text-white font-semibold px-8 py-3 rounded-xl hover:bg-green-800 transition disabled:opacity-50"
       >
         {loading ? 'Confirmando...' : 'Confirmar Reserva'}

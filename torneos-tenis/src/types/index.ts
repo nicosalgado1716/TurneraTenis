@@ -46,6 +46,27 @@ export interface ReservaJugador {
   profile?: Profile
 }
 
+export type TipoSancion = 'inhabilitacion_temporal' | 'descuento_reservas'
+export type EstadoSancion = 'activa' | 'finalizada' | 'revocada'
+export type EstadoApelacion = 'sin_apelar' | 'pendiente' | 'aceptada' | 'rechazada'
+
+export interface Sancion {
+  id: string
+  user_id: string
+  tipo: TipoSancion
+  motivo: string
+  fecha_inicio?: string
+  fecha_fin?: string
+  cantidad_reservas?: number
+  estado: EstadoSancion
+  apelacion_texto?: string
+  apelacion_estado: EstadoApelacion
+  apelacion_respuesta?: string
+  created_by?: string
+  created_at: string
+  profile?: Profile
+}
+
 export interface HorarioDisponible {
   hora_inicio: string
   hora_fin: string
